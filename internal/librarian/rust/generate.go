@@ -146,6 +146,9 @@ func generateVeneer(ctx context.Context, library *config.Library, sources *sourc
 		if module.Template == "storage" {
 			return generateRustStorage(ctx, library, module.Output, sources)
 		}
+		if module.Template == "bigquery-query-builder" {
+			return generateRustBigQueryBuilder(ctx, library, module.Output, sources)
+		}
 		modelConfig, err := moduleToModelConfig(library, module, sources)
 		if err != nil {
 			return fmt.Errorf("moduleToModelConfig %q: %w", module.Output, err)
@@ -264,4 +267,29 @@ func findModuleByOutput(library *config.Library, output string) *config.RustModu
 	}
 
 	return nil
+}
+
+// generateRustBigQueryBuilder generates rust BigQuery query builder.
+func generateRustBigQueryBuilder(ctx context.Context, library *config.Library, moduleOutput string, sources *sources.Sources) error {
+	var bqModule *config.RustModule
+	for _, module := range library.Rust.Modules {
+		if module.Template == "bigquery-query-builder" {
+			bqModule = module
+			break
+		}
+	}
+	if bqModule == nil {
+		return fmt.Errorf("module with template 'bigquery-query-builder' not found in library %q", library.Name)
+	}
+
+	modelConfig, err := moduleToModelConfig(library, bqModule, sources)
+	if err != nil {
+		return fmt.Errorf("failed to create bigquery model config: %w", err)
+	}
+	model, err := parser.CreateModel(modelConfig)
+	if err != nil {
+		return fmt.Errorf("failed to create bigquery model: %w", err)
+	}
+
+	return sidekickrust.GenerateBigQueryBuilder(ctx, moduleOutput, model, modelConfig)
 }
