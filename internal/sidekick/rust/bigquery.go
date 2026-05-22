@@ -91,7 +91,7 @@ func generateBigQuerySetters(model *api.API) ([]bigQuerySetter, error) {
 	slices.Sort(allFieldNames)
 	allFieldNames = slices.Compact(allFieldNames)
 
-	skippedFields := []string{"query", "kind", "job_type", "copy", "load", "extract"}
+	skippedFields := []string{"query", "kind", "job_type", "copy", "load", "extract", "format_options"}
 	var setters []bigQuerySetter
 
 	for _, fieldName := range allFieldNames {
@@ -102,6 +102,18 @@ func generateBigQuerySetters(model *api.API) ([]bigQuerySetter, error) {
 		qrF := qrFields[fieldName]
 		jcqF := jcqFields[fieldName]
 		jcF := jcFields[fieldName]
+
+		isOutputOnly := func(f *api.Field) bool {
+			if f == nil {
+				return true
+			}
+			return slices.Contains(f.Behavior, api.FieldBehaviorOutputOnly)
+		}
+
+		if isOutputOnly(qrF) && isOutputOnly(jcqF) && isOutputOnly(jcF) {
+			continue
+		}
+
 
 		// Generate normal and or_clear setters where applicable
 		variations := []struct {
