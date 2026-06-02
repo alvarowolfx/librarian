@@ -38,8 +38,8 @@ type bigQuerySetter struct {
 
 	// Routing/Execution properties
 	HasQueryRequest          bool
-	HasJobConfigurationQuery  bool
-	HasJobConfiguration       bool
+	HasJobConfigurationQuery bool
+	HasJobConfiguration      bool
 }
 
 // generateBigQuerySetters compiles the forwarding setters for the unified RunQuery builder.
@@ -113,7 +113,6 @@ func generateBigQuerySetters(model *api.API) ([]bigQuerySetter, error) {
 		if isOutputOnly(qrF) && isOutputOnly(jcqF) && isOutputOnly(jcF) {
 			continue
 		}
-
 
 		// Generate normal and or_clear setters where applicable
 		variations := []struct {
@@ -195,11 +194,156 @@ func generateBigQuerySetters(model *api.API) ([]bigQuerySetter, error) {
 				IsOrClear:                v.isOrClear,
 				IsCopy:                   isCopy,
 				HasQueryRequest:          hasQr,
-				HasJobConfigurationQuery:  hasJcq,
-				HasJobConfiguration:       hasJc,
+				HasJobConfigurationQuery: hasJcq,
+				HasJobConfiguration:      hasJc,
 			})
 		}
 	}
 
 	return setters, nil
+}
+
+// bigQueryMetadataField holds the structured metadata for a single generated field in QueryMetadata.
+type bigQueryMetadataField struct {
+	FieldName                  string
+	FieldType                  string
+	DocLines                   []string
+	IsRepeated                 bool
+	IsMap                      bool
+	HasQueryResponse           bool
+	HasGetQueryResultsResponse bool
+	QrNeedsSomeWrap            bool
+	GqrNeedsSomeWrap           bool
+	IsLocation                 bool
+	ConvertEmptyToNone         bool
+}
+
+// generateBigQueryMetadataFields compiles the merged fields for the unified QueryMetadata.
+func generateBigQueryMetadataFields(model *api.API) ([]bigQueryMetadataField, error) {
+	var qrMsg, gqrMsg *api.Message
+
+	// Find the target low-level messages in the model
+	for _, msg := range model.Messages {
+		if msg.Name == "QueryResponse" {
+			qrMsg = msg
+		} else if msg.Name == "GetQueryResultsResponse" {
+			gqrMsg = msg
+		}
+	}
+
+	if qrMsg == nil || gqrMsg == nil {
+		return nil, fmt.Errorf("failed to locate QueryResponse or GetQueryResultsResponse messages")
+	}
+
+	// Index fields by their name
+	qrFields := make(map[string]*api.Field)
+	for _, f := range qrMsg.Fields {
+		qrFields[f.Name] = f
+	}
+
+	gqrFields := make(map[string]*api.Field)
+	for _, f := range gqrMsg.Fields {
+		gqrFields[f.Name] = f
+	}
+
+	// Collect all unique field names across both models
+	var allFieldNames []string
+	for name := range qrFields {
+		allFieldNames = append(allFieldNames, name)
+	}
+	for name := range gqrFields {
+		allFieldNames = append(allFieldNames, name)
+	}
+	slices.Sort(allFieldNames)
+	allFieldNames = slices.Compact(allFieldNames)
+
+	// Pagination/Data fields that are handled separately by the row iterator
+	skippedFields := []string{"rows", "page_token", "etag", "job_complete"}
+	emptyStringToOptionFields := []string{"location", "query_id"}
+	var metadataFields []bigQueryMetadataField
+
+	for _, fieldName := range allFieldNames {
+		if slices.Contains(skippedFields, fieldName) {
+			continue
+		}
+
+		qrF := qrFields[fieldName]
+		gqrF := gqrFields[fieldName]
+
+		hasQr := qrF != nil
+		hasGqr := gqrF != nil
+
+		// Get a representative field for annotations
+		var primaryField *api.Field
+		if qrF != nil {
+			primaryField = qrF
+		} else {
+			primaryField = gqrF
+		}
+
+		fAnn := primaryField.Codec.(*fieldAnnotations)
+
+		isRepeated := primaryField.Repeated
+		isMap := primaryField.Map
+
+		qrIsOptional := qrF != nil && qrF.Optional
+		gqrIsOptional := gqrF != nil && gqrF.Optional
+
+		// A field is optional in the merged struct if:
+		// 1. It is optional in either response OR
+		// 2. It is present in only one of the responses
+		// (and it is not repeated or a map)
+		isMergedOptional := false
+		if !isRepeated && !isMap {
+			isMergedOptional = !hasQr || !hasGqr || qrIsOptional || gqrIsOptional
+		}
+
+		baseType := strings.ReplaceAll(fAnn.PrimitiveFieldType, "crate::model", "google_cloud_bigquery_v2::model")
+
+		var fieldType string
+		if isRepeated {
+			fieldType = fmt.Sprintf("std::vec::Vec<%s>", baseType)
+		} else if isMap {
+			keyType := strings.ReplaceAll(fAnn.KeyType, "crate::model", "google_cloud_bigquery_v2::model")
+			valType := strings.ReplaceAll(fAnn.ValueType, "crate::model", "google_cloud_bigquery_v2::model")
+			fieldType = fmt.Sprintf("std::collections::HashMap<%s, %s>", keyType, valType)
+		} else if isMergedOptional {
+			fieldType = fmt.Sprintf("std::option::Option<%s>", baseType)
+		} else {
+			fieldType = baseType
+		}
+
+		// Determine if we need to wrap in Some during conversion
+		qrNeedsSomeWrap := false
+		if hasQr && isMergedOptional && !qrIsOptional && !isRepeated && !isMap {
+			qrNeedsSomeWrap = true
+		}
+
+		gqrNeedsSomeWrap := false
+		if hasGqr && isMergedOptional && !gqrIsOptional && !isRepeated && !isMap {
+			gqrNeedsSomeWrap = true
+		}
+
+		// Doc lines
+		docLines := fAnn.DocLines
+		if !hasGqr {
+			docLines = append(docLines, "/// Only present if the query was started using the `jobs.query` API.")
+		}
+
+		metadataFields = append(metadataFields, bigQueryMetadataField{
+			FieldName:                  toSnake(fieldName),
+			FieldType:                  fieldType,
+			DocLines:                   docLines,
+			IsRepeated:                 isRepeated,
+			IsMap:                      isMap,
+			HasQueryResponse:           hasQr,
+			QrNeedsSomeWrap:            qrNeedsSomeWrap,
+			HasGetQueryResultsResponse: hasGqr,
+			GqrNeedsSomeWrap:           gqrNeedsSomeWrap,
+			IsLocation:                 fieldName == "location",
+			ConvertEmptyToNone:         slices.Contains(emptyStringToOptionFields, fieldName),
+		})
+	}
+
+	return metadataFields, nil
 }

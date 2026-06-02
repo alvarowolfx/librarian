@@ -1,0 +1,91 @@
+// Copyright {{Codec.Model.Codec.CopyrightYear}} Google LLC
+{{#Codec.Model.Codec.BoilerPlate}}
+//{{{.}}}
+{{/Codec.Model.Codec.BoilerPlate}}
+
+/// Metadata associated with a query completion.
+///
+/// Wraps the merged fields of the raw service payloads received when the query finished,
+/// either immediately (`QueryResponse`) or after polling (`GetQueryResultsResponse`).
+#[derive(Debug, Clone, Default, PartialEq)]
+#[non_exhaustive]
+pub struct QueryMetadata {
+{{#Codec.MetadataFields}}
+    {{#DocLines}}
+    {{{.}}}
+    {{/DocLines}}
+    pub {{FieldName}}: {{{FieldType}}},
+
+{{/Codec.MetadataFields}}
+}
+
+impl std::convert::From<google_cloud_bigquery_v2::model::QueryResponse> for QueryMetadata {
+    fn from(res: google_cloud_bigquery_v2::model::QueryResponse) -> Self {
+        Self {
+        {{#Codec.MetadataFields}}
+            {{#HasQueryResponse}}
+                {{#QrNeedsSomeWrap}}
+                    {{#ConvertEmptyToNone}}
+            {{FieldName}}: if res.{{FieldName}}.is_empty() { None } else { Some(res.{{FieldName}}) },
+                    {{/ConvertEmptyToNone}}
+                    {{^ConvertEmptyToNone}}
+            {{FieldName}}: Some(res.{{FieldName}}),
+                    {{/ConvertEmptyToNone}}
+                {{/QrNeedsSomeWrap}}
+                {{^QrNeedsSomeWrap}}
+            {{FieldName}}: res.{{FieldName}},
+                {{/QrNeedsSomeWrap}}
+            {{/HasQueryResponse}}
+            {{^HasQueryResponse}}
+                {{#IsRepeated}}
+            {{FieldName}}: std::vec::Vec::new(),
+                {{/IsRepeated}}
+                {{#IsMap}}
+            {{FieldName}}: std::collections::HashMap::new(),
+                {{/IsMap}}
+                {{^IsRepeated}}
+                {{^IsMap}}
+            {{FieldName}}: None,
+                {{/IsMap}}
+                {{/IsRepeated}}
+            {{/HasQueryResponse}}
+        {{/Codec.MetadataFields}}
+        }
+    }
+}
+
+impl std::convert::From<google_cloud_bigquery_v2::model::GetQueryResultsResponse> for QueryMetadata {
+    fn from(res: google_cloud_bigquery_v2::model::GetQueryResultsResponse) -> Self {
+        let location = res.job_reference.as_ref().and_then(|j| j.location.clone());
+        Self {
+        {{#Codec.MetadataFields}}
+            {{#HasGetQueryResultsResponse}}
+                {{#GqrNeedsSomeWrap}}
+            {{FieldName}}: Some(res.{{FieldName}}),
+                {{/GqrNeedsSomeWrap}}
+                {{^GqrNeedsSomeWrap}}
+            {{FieldName}}: res.{{FieldName}},
+                {{/GqrNeedsSomeWrap}}
+            {{/HasGetQueryResultsResponse}}
+            {{^HasGetQueryResultsResponse}}
+                {{#IsLocation}}
+            {{FieldName}},
+                {{/IsLocation}}
+                {{^IsLocation}}
+                    {{#IsRepeated}}
+            {{FieldName}}: std::vec::Vec::new(),
+                    {{/IsRepeated}}
+                    {{#IsMap}}
+            {{FieldName}}: std::collections::HashMap::new(),
+                    {{/IsMap}}
+                    {{^IsRepeated}}
+                    {{^IsMap}}
+            {{FieldName}}: None,
+                    {{/IsMap}}
+                    {{/IsRepeated}}
+                {{/IsLocation}}
+            {{/HasGetQueryResultsResponse}}
+        {{/Codec.MetadataFields}}
+        }
+    }
+}

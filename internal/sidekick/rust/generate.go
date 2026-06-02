@@ -82,11 +82,16 @@ func GenerateBigQueryBuilder(ctx context.Context, outdir string, model *api.API,
 	if err != nil {
 		return err
 	}
+	metadataFields, err := generateBigQueryMetadataFields(model)
+	if err != nil {
+		return err
+	}
 
 	model = &api.API{
 		Codec: &bigQueryAnnotations{
 			Model:           model,
 			BigQuerySetters: setters,
+			MetadataFields:  metadataFields,
 		},
 	}
 
@@ -98,6 +103,7 @@ func GenerateBigQueryBuilder(ctx context.Context, outdir string, model *api.API,
 type bigQueryAnnotations struct {
 	Model           *api.API
 	BigQuerySetters []bigQuerySetter
+	MetadataFields  []bigQueryMetadataField
 }
 
 type storageAnnotations struct {
